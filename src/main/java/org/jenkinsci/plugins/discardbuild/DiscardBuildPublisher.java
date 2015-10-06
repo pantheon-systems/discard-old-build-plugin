@@ -42,9 +42,17 @@ public class DiscardBuildPublisher extends Recorder {
      */
     private final int numToKeep;
     /**
+     * If not -1, we keep this many builds, and discard all unsuccessful builds beyond that.
+     */
+    private final int numToKeepBeforeDiscardingSuccessful;
+    /**
      * Set of build results to be kept.
      */
     private final Set<Result> resultsToDiscard;
+    /**
+     * Set of what we consider unsuccessful build results.
+     */
+    private final Set<Result> successfulResults;
     /**
      * If not -1, history is only kept up to this logfile size.
      */
@@ -72,6 +80,7 @@ public class DiscardBuildPublisher extends Recorder {
 
     @DataBoundConstructor
     public DiscardBuildPublisher(
+            String numToKeepBeforeDiscardingSuccessful,
             String daysToKeep,
             String intervalDaysToKeep,
             String numToKeep,
@@ -86,7 +95,7 @@ public class DiscardBuildPublisher extends Recorder {
             String regexp,
             boolean keepLastBuilds
     ) {
-
+        this.numToKeepBeforeDiscardingSuccessful = parse(numToKeepBeforeDiscardingSuccessful);
         this.daysToKeep = parse(daysToKeep);
         this.intervalDaysToKeep = parse(intervalDaysToKeep);
         this.numToKeep = parse(numToKeep);
@@ -108,6 +117,9 @@ public class DiscardBuildPublisher extends Recorder {
         if (discardAborted) {
             resultsToDiscard.add(Result.ABORTED);
         }
+
+        successfulResults = new HashSet<Result>();
+        successfulResults.add(Result.SUCCESS);
 
         this.minLogFileSize = parseLong(minLogFileSize);
         this.maxLogFileSize = parseLong(maxLogFileSize);
@@ -338,6 +350,21 @@ public class DiscardBuildPublisher extends Recorder {
         }
     }
 
+    private void deleteOldSuccessfulBuilds(AbstractBuild<?, ?> build, BuildListener listener, int numToKeepBeforeDiscardingSuccessful, Set<Result> successfulResults) {
+        ArrayList<Run<?, ?>> list = updateBuildsList(build, listener);
+        if (numToKeepBeforeDiscardingSuccessful == -1) return;
+        int index = 0;
+        try {
+            for (Run<?, ?> r : list) {
+                if (index >= numToKeepBeforeDiscardingSuccessful)
+                    discardByStatus(r, successfulResults, listener);
+                index++;
+            }
+        } catch (IOException e) {
+            e.printStackTrace(listener.error(""));
+        }
+    }
+
     private ArrayList<Run<?, ?>> updateBuildsList(AbstractBuild<?, ?> build, BuildListener listener) {
         RunList<Run<?, ?>> builds = new RunList<Run<?, ?>>();
         ArrayList<Run<?, ?>> list = new ArrayList<Run<?, ?>>();
@@ -356,6 +383,7 @@ public class DiscardBuildPublisher extends Recorder {
         listener.getLogger().println("Discard old builds..."); //$NON-NLS-1$
 
         // priority influence discard results, TODO: dynamic adjust priority on UI
+        deleteOldSuccessfulBuilds(build, listener, numToKeepBeforeDiscardingSuccessful, successfulResults);
         deleteOldBuildsByDays(build, listener, daysToKeep);
         deleteOldBuildsByNum(build, listener, numToKeep);
         deleteOldBuildsByIntervalDays(build, listener, intervalDaysToKeep);
@@ -404,6 +432,10 @@ public class DiscardBuildPublisher extends Recorder {
 
     public String getNumToKeep() {
         return intToString(numToKeep);
+    }
+
+    public String getNumToKeepBeforeDiscardingSuccessful() {
+        return intToString(numToKeepBeforeDiscardingSuccessful);
     }
 
     public String getMinLogFileSize() {
